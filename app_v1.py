@@ -32,12 +32,12 @@ n2 = Metabolite(
 
 nh4 = Metabolite(
     'nh4',
-    name='Ammonia',
+    name='Nutrients',
     compartment='e0')
 
-no3 = Metabolite(
-    'no3',
-    name='Nitrate',
+o2 = Metabolite(
+    'o2',
+    name='O2',
     compartment='e0')
 
 bio = Metabolite(
@@ -60,16 +60,6 @@ diaz_bio = Metabolite(
     name='Diazotrophic biomass',
     compartment='e0')
 
-nitrif_bio = Metabolite(
-    'nitrif_biomass',
-    name='Nitrification biomass',
-    compartment='e0')
-
-denitrif_bio = Metabolite(
-    'denitrif_biomass',
-    name='Denitrification biomass',
-    compartment='e0')
-
 hn = Metabolite(
     'photon',
     name = 'Photon',
@@ -77,14 +67,12 @@ hn = Metabolite(
 
 # model - build new model for every input
 
-def build_model(auto, hetero, diaz, nitrif, denitrif, ecosystem):
+def build_model(auto, hetero, diaz, ecosystem):
     
-    tot_abun = auto + hetero + diaz + nitrif + denitrif
+    tot_abun = auto + hetero + diaz
     auto_rel = auto / tot_abun
     het_rel = hetero / tot_abun
     diaz_rel = diaz / tot_abun
-    nitrif_rel = nitrif / tot_abun
-    denitrif_rel = denitrif / tot_abun
 
     model = Model("community")
     
@@ -96,8 +84,9 @@ def build_model(auto, hetero, diaz, nitrif, denitrif, ecosystem):
     reaction1.add_metabolites({
         co2: -1.0,
         hn: -1.0,
-        no3: -1.0,
+        nh4: -1.0,
         gluc: 1.0,
+        o2: 1.0,
         aut_bio: 1
 
     })
@@ -110,7 +99,8 @@ def build_model(auto, hetero, diaz, nitrif, denitrif, ecosystem):
     reaction2.add_metabolites({
         co2: 4.0,
         gluc: - 2.0,
-        no3: - 1.0,
+        nh4: - 1.0,
+        o2: -1.0,
         het_bio: 1.0
     })
 
@@ -121,36 +111,13 @@ def build_model(auto, hetero, diaz, nitrif, denitrif, ecosystem):
 
     reaction3.add_metabolites({
         nh4: 1.0,
+        co2: 1.0,
         n2: - 1.0,
+        gluc: -1.0,
         diaz_bio: 1.0
     })
 
-    reaction4 = Reaction('nitrifier')
-    reaction4.name = 'Nitrification'
-    reaction4.lower_bound = 0.  
-    reaction4.upper_bound = nitrif
 
-    reaction4.add_metabolites({
-        nh4: - 1.0,
-        no3: 5.0,
-        gluc: -1.0,
-        co2: 2.0,
-        nitrif_bio: 1.0
-    })
-
-    reaction5 = Reaction('denitrifier')
-    reaction5.name = 'Denitrification'
-    reaction5.lower_bound = 0.  
-    reaction5.upper_bound = denitrif
-
-    reaction5.add_metabolites({
-        n2: 1.0,
-        no3: - 1.0,
-        gluc: -1.0,
-        co2: 2.0,
-        denitrif_bio: 1.0
-    })
-    
     biomass_rxn = Reaction('biomass')
     biomass_rxn.name = 'Total biomass formation'
     biomass_rxn.lower_bound = 0.  # This is the default
@@ -160,16 +127,14 @@ def build_model(auto, hetero, diaz, nitrif, denitrif, ecosystem):
         aut_bio: - auto_rel,
         het_bio: - het_rel,
         diaz_bio: - diaz_rel,
-        nitrif_bio: - nitrif_rel,
-        denitrif_bio: - denitrif_rel,
         bio: 1.0
     })
 
 #add metabolites
-    model.add_metabolites([co2, gluc, bio, hn, aut_bio, het_bio, diaz_bio, nitrif_bio, denitrif_bio, nh4, n2, no3])
+    model.add_metabolites([co2, gluc, bio, hn, aut_bio, het_bio, diaz_bio, nh4, n2, o2])
 
 #add reactions
-    model.add_reactions([reaction1, reaction2, reaction3, reaction4, reaction5, biomass_rxn])
+    model.add_reactions([reaction1, reaction2, reaction3, biomass_rxn])
 
 #add exchange reactions
     model.add_boundary(model.metabolites.get_by_id("co2"), type="exchange")
@@ -177,9 +142,10 @@ def build_model(auto, hetero, diaz, nitrif, denitrif, ecosystem):
     model.add_boundary(model.metabolites.get_by_id("glc__D"), type="exchange")
     model.add_boundary(model.metabolites.get_by_id("nh4"), type="exchange")
     model.add_boundary(model.metabolites.get_by_id("n2"), type="exchange")
-    model.add_boundary(model.metabolites.get_by_id("no3"), type="exchange")
+    #model.add_boundary(model.metabolites.get_by_id("no3"), type="exchange")
     #model.add_boundary(model.metabolites.get_by_id("co2"), type="sink")
     #model.add_boundary(model.metabolites.get_by_id("glc__D"), type="sink")
+    model.add_boundary(model.metabolites.get_by_id("o2"), type="exchange")
     model.add_boundary(model.metabolites.get_by_id("biomass"), type="exchange")
     
 #medium ie ecosystem conditions
@@ -190,8 +156,8 @@ def build_model(auto, hetero, diaz, nitrif, denitrif, ecosystem):
         medium["EX_photon"] = 100 #light
         medium["EX_glc__D"] = 1.0 # change for open system
         medium["EX_n2"] = 100
+        medium["EX_o2"] = 1.0
         medium["EX_nh4"] = 1.0
-        medium["EX_no3"] = 1.0
         medium["EX_biomass"] = 0 
         model.medium = medium
     
@@ -274,20 +240,16 @@ def draw_frame(frame, sol):
 
     pos = {
         "Light": (0.1, 0.9),
-        "CO2": (0.1, 0.55),
-        "N2": (0.1, 0.25),
+        "CO2": (0.45, 0.75),
+        "N2": (0.8, 0.9),
 
-        "Autotrophs": (0.45, 0.8),
-        "Heterotrophs": (0.45, 0.45),
+        "Autotrophs": (0.25, 0.65),
+        "Heterotrophs": (0.15, 0.35),
 
-        "Diazotrophs": (0.45, 0.25),
-        "NH4": (0.7, 0.2),
+        "Diazotrophs": (0.65, 0.65),
+        "NH4": (0.6, 0.45),
 
-        "Nitrifiers": (0.85, 0.35),
-        "NO3": (0.7, 0.5),
-        "Denitrifiers": (0.85, 0.6),
-
-        "Carbohydrates": (0.7, 0.75),
+        "Carbohydrates": (0.35, 0.25),
     }
 
     fig = go.Figure()
@@ -297,39 +259,44 @@ def draw_frame(frame, sol):
     # --------------------------------------------------
 
     edges = [
-        ("Light", "Autotrophs", "green"),
-        ("CO2", "Autotrophs", "green"),
-        ("N2", "Diazotrophs", "purple"),
+        ("Light", "Autotrophs", "green", "autotroph"),
+        ("CO2", "Autotrophs", "green", "autotroph"),
+        ("N2", "Diazotrophs", "purple", "diazotroph"),
 
-        ("Diazotrophs", "NH4", "purple"),
+        ("Diazotrophs", "NH4", "purple", "diazotroph"),
 
-        ("NH4", "Nitrifiers", "orange"),
-        ("Nitrifiers", "NO3", "orange"),
+        ("NH4", "Autotrophs", "green", "autotroph"),
+        ("NH4", "Heterotrophs", "red", "heterotroph"),
 
-        ("NO3", "Autotrophs", "green"),
-        ("NO3", "Heterotrophs", "red"),
-        ("NO3", "Denitrifiers", "orange"),
+        ("Autotrophs", "Carbohydrates", "green", "autotroph"),
+        ("Carbohydrates", "Heterotrophs", "red", "heterotroph"),
 
-        ("Autotrophs", "Carbohydrates", "green"),
-        ("Carbohydrates", "Heterotrophs", "red"),
-
-        ("Heterotrophs", "CO2", "blue"),
-        ("Nitrifiers", "CO2", "blue"),
-        ("Denitrifiers", "CO2", "blue"),
+        ("Heterotrophs", "CO2", "blue", "heterotroph"),
     ]
 
-    for src, dst, color in edges:
+    max_flux = max(flux_abs.max(), 1e-6)
+
+    def scale_flux(f):
+        #return 1 + 10 * (f / max_flux)
+        return 10 * f
+
+    for src, dst, color, rxn in edges:
 
         x0, y0 = pos[src]
         x1, y1 = pos[dst]
+
+        width = scale_flux(flux_abs[rxn])
 
         fig.add_trace(
             go.Scatter(
                 x=[x0, x1],
                 y=[y0, y1],
                 mode="lines",
-                line=dict(color=color, width=2),
-                opacity=0.3,
+                line=dict(
+                    color=color,
+                    width=width
+                ),
+                opacity=0.5,
                 showlegend=False,
                 hoverinfo="skip"
             )
@@ -401,29 +368,9 @@ def draw_frame(frame, sol):
 
         add_particle_stream(
             fig,
-            pos["NO3"],
+            pos["NH4"],
             pos["Autotrophs"],
             "green",
-            phase,
-        )
-
-    elif frame < 70:
-
-        phase = (frame - 50) / 20
-
-        add_particle_stream(
-            fig,
-            pos["NH4"],
-            pos["Nitrifiers"],
-            "orange",
-            phase,
-        )
-
-        add_particle_stream(
-            fig,
-            pos["Nitrifiers"],
-            pos["NO3"],
-            "orange",
             phase,
         )
 
@@ -441,17 +388,9 @@ def draw_frame(frame, sol):
 
         add_particle_stream(
             fig,
-            pos["NO3"],
+            pos["NH4"],
             pos["Heterotrophs"],
             "red",
-            phase,
-        )
-
-        add_particle_stream(
-            fig,
-            pos["NO3"],
-            pos["Denitrifiers"],
-            "orange",
             phase,
         )
 
@@ -462,22 +401,6 @@ def draw_frame(frame, sol):
         add_particle_stream(
             fig,
             pos["Heterotrophs"],
-            pos["CO2"],
-            "blue",
-            phase,
-        )
-
-        add_particle_stream(
-            fig,
-            pos["Nitrifiers"],
-            pos["CO2"],
-            "blue",
-            phase,
-        )
-
-        add_particle_stream(
-            fig,
-            pos["Denitrifiers"],
             pos["CO2"],
             "blue",
             phase,
@@ -502,8 +425,6 @@ app_ui = ui.page_sidebar(
         ui.input_numeric("auto", "Autotroph flux", 1),
         ui.input_numeric("hetero", "Heterotroph flux", 1),
         ui.input_numeric("diaz", "Diazotroph flux", 1),
-        ui.input_numeric("nitrif", "Nitrifier flux", 1),
-        ui.input_numeric("denitrif", "Denitrifier flux", 1),
         ui.input_select("ecosystem", "Ecosystem", ["lake"]),
         ui.input_slider("frame", "Frame", 0, 100, 0),
     ),
@@ -531,8 +452,6 @@ def server(input, output, session):
             input.auto(),
             input.hetero(),
             input.diaz(),
-            input.nitrif(),
-            input.denitrif(),
             input.ecosystem()
         )
 
