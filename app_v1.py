@@ -176,65 +176,72 @@ from matplotlib.patches import FancyArrowPatch
 # =========================================================
 # DRAWING UTILITIES
 # =========================================================
-def draw_arrow(ax, p1, p2, width, color, rad=0.15):
-    ax.add_patch(FancyArrowPatch(
-        p1, p2,
-        arrowstyle="-|>",
-        connectionstyle=f"arc3,rad={rad}",
-        linewidth=width,
-        color=color,
-        alpha=0.85,
-        mutation_scale=18
-    ))
+def particle_stream(edge_id, color, n_particles):
 
-import plotly.graph_objects as go
-from shinywidgets import output_widget
-
-
-def interp(p1, p2, t):
-    return (
-        p1[0] + t * (p2[0] - p1[0]),
-        p1[1] + t * (p2[1] - p1[1]),
-    )
-
-#max_flux = max(flux_abs.max(), 1e-6)
-
-def scale_flux(f):
-    #return 1 + 10 * (f / max_flux)
-    return 10 * f
-
-
-def particle_count(f, max_flux):
-    return max(
-        1,
-        int(1 + 8 * numpy.sqrt(f / max_flux))
-    )
-
-def add_particle_stream(
-    particle_x,
-    particle_y,
-    particle_colors,
-    p1,
-    p2,
-    color,
-    phase,
-    n_particles=4,
-):
-
-    n_particles = max(1, int(n_particles))
+    out = []
 
     for k in range(n_particles):
 
-        t = (phase + k / n_particles) % 1
+        delay = 4 * k / n_particles
 
-        x, y = interp(p1, p2, t)
+        out.append(f"""
+        <circle r="5" fill="{color}">
+        </circle>
 
-        particle_x.append(x)
-        particle_y.append(y)
-        particle_colors.append(color)
+        <script>
+        (() => {{
+
+            const circles =
+                document.querySelectorAll(
+                    'circle[fill="{color}"]'
+                );
+
+            const circle =
+                circles[circles.length - 1];
+
+            const path =
+                document.getElementById("{edge_id}");
+
+            const length =
+                path.getTotalLength();
+
+            function animate(now) {{
+
+                const t =
+                    ((now / 1000) + {delay}) % 4;
+
+                const pt =
+                    path.getPointAtLength(
+                        length * t / 4
+                    );
+
+                circle.setAttribute(
+                    "cx",
+                    pt.x
+                );
+
+                circle.setAttribute(
+                    "cy",
+                    pt.y
+                );
+
+                requestAnimationFrame(
+                    animate
+                );
+            }}
+
+            requestAnimationFrame(
+                animate
+            );
+
+        }})();
+        </script>
+        """)
+
+    return "\n".join(out)
 
     
-def make_animation(sol):
+def make_svg(sol):
 
     flux = sol.fluxes
     flux_abs = flux.abs()
@@ -242,24 +249,18 @@ def make_animation(sol):
     max_flux = max(flux_abs.max(), 1e-6)
 
     pos = {
-        "Light": (0.1, 0.9),
-        "CO2": (0.45, 0.75),
-        "N2": (0.8, 0.9),
+        "Light": (80, 80),
+        "CO2": (360, 140),
+        "N2": (640, 80),
 
-        "Autotrophs": (0.25, 0.65),
-        "Heterotrophs": (0.15, 0.35),
+        "Autotrophs": (220, 220),
+        "Diazotrophs": (500, 220),
 
-        "Diazotrophs": (0.65, 0.65),
-        "NH4": (0.6, 0.45),
+        "NH4": (450, 360),
 
-        "Carbohydrates": (0.35, 0.25),
+        "Carbohydrates": (280, 520),
+        "Heterotrophs": (120, 420),
     }
-
-    fig = go.Figure()
-
-    # ----------------------------------------
-    # Static network
-    # ----------------------------------------
 
     edges = [
         ("Light", "Autotrophs", "green", "autotroph"),
@@ -277,257 +278,191 @@ def make_animation(sol):
         ("Heterotrophs", "CO2", "blue", "heterotroph"),
     ]
 
-    for src, dst, color, rxn in edges:
+    svg = []
 
-        x0, y0 = pos[src]
-        x1, y1 = pos[dst]
+    svg.append("""
+    <svg id="network" width="800" height="650" viewBox="0 0 800 650">
+    """)
 
-        fig.add_trace(
-            go.Scatter(
-                x=[x0, x1],
-                y=[y0, y1],
-                mode="lines",
-                line=dict(
-                    color=color,
-                    width=scale_flux(flux_abs[rxn])
-                ),
-                opacity=0.5,
-                hoverinfo="skip",
-                showlegend=False,
-            )
+    # -----------------------------------
+    # Draw paths
+    # -----------------------------------
+
+    for i, (src, dst, color, rxn) in enumerate(edges):
+
+        x1, y1 = pos[src]
+        x2, y2 = pos[dst]
+
+        width = 2 + 12 * flux_abs[rxn] / max_flux
+
+        svg.append(
+            f"""
+            <path
+                id="edge{i}"
+                d="M {x1} {y1} L {x2} {y2}"
+                stroke="{color}"
+                stroke-width="{width}"
+                fill="none"
+                opacity="0.6"
+            />
+            """
         )
 
-    # ----------------------------------------
+    # -----------------------------------
     # Nodes
-    # ----------------------------------------
+    # -----------------------------------
 
-    fig.add_trace(
-        go.Scatter(
-            x=[p[0] for p in pos.values()],
-            y=[p[1] for p in pos.values()],
-            text=list(pos.keys()),
-            mode="markers+text",
-            marker=dict(
-                size=45,
-                color="lightblue",
-                line=dict(color="black", width=1)
-            ),
-            textposition="middle center",
-            showlegend=False,
+    for name, (x, y) in pos.items():
+
+        svg.append(
+            f"""
+            <circle
+                cx="{x}"
+                cy="{y}"
+                r="35"
+                fill="lightblue"
+                stroke="black"
+            />
+
+            <text
+                x="{x}"
+                y="{y + 5}"
+                text-anchor="middle"
+                font-size="14"
+                font-family="Arial">
+                {name}
+            </text>
+            """
         )
-    )
 
-    # dummy particle trace that gets animated
-    fig.add_trace(
-        go.Scatter(
-            x=[],
-            y=[],
-            mode="markers",
-            marker=dict(size=8),
-            showlegend=False
+    # -----------------------------------
+    # Particles
+    # -----------------------------------
+
+    particle_id = 0
+
+    for i, (src, dst, color, rxn) in enumerate(edges):
+
+        n_particles = max(
+            1,
+            int(
+                1 + 8 * numpy.sqrt(
+                    flux_abs[rxn] / max_flux
+                )
+            )
         )
-    )
 
-    # ----------------------------------------
-    # Animation frames
-    # ----------------------------------------
+        # sequential pathway activation
+        if rxn == "autotroph" and src in ["Light", "CO2"]:
+            phase = 0
 
-    frames = []
+        elif rxn == "diazotroph":
+            phase = 2
 
-    for frame in range(100):
+        elif src == "NH4" and dst == "Autotrophs":
+            phase = 4
 
-        particle_x = []
-        particle_y = []
-        particle_colors = []
+        elif rxn == "heterotroph" and src != "Heterotrophs":
+            phase = 6
 
-        # Stage 1
-        if frame < 20:
-
-            phase = frame / 20
-
-            add_particle_stream(
-                particle_x,
-                particle_y,
-                particle_colors,
-                pos["Light"],
-                pos["Autotrophs"],
-                "green",
-                phase,
-                particle_count(
-                    flux_abs["autotroph"],
-                    max_flux
-                )
-            )
-
-            add_particle_stream(
-                particle_x,
-                particle_y,
-                particle_colors,
-                pos["N2"],
-                pos["Diazotrophs"],
-                "purple",
-                phase,
-                particle_count(
-                    flux_abs["diazotroph"],
-                    max_flux
-                )
-            )
-
-        # Stage 2
-        elif frame < 50:
-
-            phase = (frame - 20) / 30
-
-            add_particle_stream(
-                particle_x,
-                particle_y,
-                particle_colors,
-                pos["Autotrophs"],
-                pos["Carbohydrates"],
-                "green",
-                phase,
-                particle_count(
-                    flux_abs["autotroph"],
-                    max_flux
-                )
-            )
-
-            add_particle_stream(
-                particle_x,
-                particle_y,
-                particle_colors,
-                pos["Diazotrophs"],
-                pos["NH4"],
-                "purple",
-                phase,
-                particle_count(
-                    flux_abs["diazotroph"],
-                    max_flux
-                )
-            )
-
-            add_particle_stream(
-                particle_x,
-                particle_y,
-                particle_colors,
-                pos["NH4"],
-                pos["Autotrophs"],
-                "green",
-                phase,
-                particle_count(
-                    flux_abs["autotroph"],
-                    max_flux
-                )
-            )
-
-        # Stage 3
-        elif frame < 90:
-
-            phase = (frame - 50) / 40
-
-            add_particle_stream(
-                particle_x,
-                particle_y,
-                particle_colors,
-                pos["Carbohydrates"],
-                pos["Heterotrophs"],
-                "red",
-                phase,
-                particle_count(
-                    flux_abs["heterotroph"],
-                    max_flux
-                )
-            )
-
-            add_particle_stream(
-                particle_x,
-                particle_y,
-                particle_colors,
-                pos["NH4"],
-                pos["Heterotrophs"],
-                "red",
-                phase,
-                particle_count(
-                    flux_abs["heterotroph"],
-                    max_flux
-                )
-            )
-
-        # Stage 4
         else:
+            phase = 8
 
-            phase = (frame - 90) / 10
+        for k in range(n_particles):
 
-            add_particle_stream(
-                particle_x,
-                particle_y,
-                particle_colors,
-                pos["Heterotrophs"],
-                pos["CO2"],
-                "blue",
-                phase,
-                particle_count(
-                    flux_abs["heterotroph"],
-                    max_flux
-                )
+            pid = f"particle_{particle_id}"
+            particle_id += 1
+
+            delay = k / max(n_particles, 1)
+
+            svg.append(
+                f"""
+                <circle
+                    id="{pid}"
+                    cx="0"
+                    cy="0"
+                    r="5"
+                    fill="{color}">
+                </circle>
+
+                <script>
+                (() => {{
+
+                    const particle =
+                        document.getElementById("{pid}");
+
+                    const path =
+                        document.getElementById("edge{i}");
+
+                    const pathLength =
+                        path.getTotalLength();
+
+                    function animate(now) {{
+
+                        const cycle = 10.0;
+
+                        let t =
+                            ((now/1000)
+                            - {phase}
+                            + {delay})
+                            % cycle;
+
+                        if (t < 0)
+                            t += cycle;
+
+                        const active =
+                            (t >= 0 && t <= 2);
+
+                        if (!active) {{
+
+                            particle.setAttribute(
+                                "visibility",
+                                "hidden"
+                            );
+
+                        }} else {{
+
+                            particle.setAttribute(
+                                "visibility",
+                                "visible"
+                            );
+
+                            const frac =
+                                t / 2;
+
+                            const point =
+                                path.getPointAtLength(
+                                    pathLength * frac
+                                );
+
+                            particle.setAttribute(
+                                "cx",
+                                point.x
+                            );
+
+                            particle.setAttribute(
+                                "cy",
+                                point.y
+                            );
+                        }}
+
+                        requestAnimationFrame(
+                            animate
+                        );
+                    }}
+
+                    requestAnimationFrame(
+                        animate
+                    );
+
+                }})();
+                </script>
+                """
             )
 
-        frames.append(
-        go.Frame(
-            data=[
-                go.Scatter(
-                    x=particle_x,
-                    y=particle_y,
-                    mode="markers",
-                    marker=dict(
-                        size=8,
-                        color=particle_colors
-                    ),
-                    showlegend=False
-                )
-            ],
-            traces=[len(fig.data)-1],   # particle trace
-            name=str(frame)
-        )
-    )
+    svg.append("</svg>")
 
-    fig.frames = frames
-
-    fig.update_layout(
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-        plot_bgcolor="white",
-        margin=dict(l=10, r=10, t=10, b=10),
-        height=600,
-
-        updatemenus=[
-            dict(
-                type="buttons",
-                showactive=False,
-                buttons=[
-                    dict(
-                        label="▶ Play",
-                        method="animate",
-                        args=[
-                            None,
-                            {
-                                "frame": {
-                                    "duration": 60,
-                                    "redraw": False
-                                },
-                                "transition": {
-                                    "duration": 0
-                                },
-                                "fromcurrent": True
-                            }
-                        ]
-                    )
-                ]
-            )
-        ]
-    )
-
-    return fig
+    return "\n".join(svg)
 
 # ---------------------------------------------------------
 # UI
@@ -539,9 +474,8 @@ app_ui = ui.page_sidebar(
         ui.input_numeric("hetero", "Heterotroph flux", 1),
         ui.input_numeric("diaz", "Diazotroph flux", 1),
         ui.input_select("ecosystem", "Ecosystem", ["lake"]),
-        ui.input_slider("frame", "Frame", 0, 100, 0),
     ),
-    output_widget("anim"),
+    ui.output_ui("anim"),
     
     ui.tags.script("""
         let f = 0;
@@ -556,7 +490,6 @@ app_ui = ui.page_sidebar(
 # ---------------------------------------------------------
 # Server
 # ---------------------------------------------------------
-from shinywidgets import render_plotly
 
 def server(input, output, session):
 
@@ -569,15 +502,14 @@ def server(input, output, session):
             input.ecosystem()
         )
     
-    def frame():
-        reactive.invalidate_later(0.25)
-        return int(time.time() * 4) % 40
-
-
     @output
-    @render_plotly
+    @render.ui
     def anim():
-       return make_animation(solution())
+        return ui.HTML(
+            make_svg(
+                solution()
+            )
+        )
 
 
 app = App(app_ui, server)
