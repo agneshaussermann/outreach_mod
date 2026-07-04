@@ -4,6 +4,7 @@ from matplotlib.animation import FuncAnimation
 import io
 import base64
 import sys
+import time
 
 
 ## Build model
@@ -196,18 +197,31 @@ def interp(p1, p2, t):
         p1[1] + t * (p2[1] - p1[1]),
     )
 
+#max_flux = max(flux_abs.max(), 1e-6)
+
+def scale_flux(f):
+    #return 1 + 10 * (f / max_flux)
+    return 10 * f
+
+
+def particle_count(f, max_flux):
+    return max(
+        1,
+        int(1 + 8 * numpy.sqrt(f / max_flux))
+    )
 
 def add_particle_stream(
-    fig,
+    particle_x,
+    particle_y,
+    particle_colors,
     p1,
     p2,
     color,
     phase,
     n_particles=4,
-    size=10
 ):
-    xs = []
-    ys = []
+
+    n_particles = max(1, int(n_particles))
 
     for k in range(n_particles):
 
@@ -215,28 +229,17 @@ def add_particle_stream(
 
         x, y = interp(p1, p2, t)
 
-        xs.append(x)
-        ys.append(y)
+        particle_x.append(x)
+        particle_y.append(y)
+        particle_colors.append(color)
 
-    fig.add_trace(
-        go.Scatter(
-            x=xs,
-            y=ys,
-            mode="markers",
-            marker=dict(
-                size=size,
-                color=color
-            ),
-            showlegend=False,
-            hoverinfo="skip"
-        )
-    )
-
-
-def draw_frame(frame, sol):
+    
+def make_animation(sol):
 
     flux = sol.fluxes
     flux_abs = flux.abs()
+
+    max_flux = max(flux_abs.max(), 1e-6)
 
     pos = {
         "Light": (0.1, 0.9),
@@ -254,38 +257,30 @@ def draw_frame(frame, sol):
 
     fig = go.Figure()
 
-    # --------------------------------------------------
+    # ----------------------------------------
     # Static network
-    # --------------------------------------------------
+    # ----------------------------------------
 
     edges = [
         ("Light", "Autotrophs", "green", "autotroph"),
         ("CO2", "Autotrophs", "green", "autotroph"),
-        ("N2", "Diazotrophs", "purple", "diazotroph"),
 
+        ("N2", "Diazotrophs", "purple", "diazotroph"),
         ("Diazotrophs", "NH4", "purple", "diazotroph"),
 
         ("NH4", "Autotrophs", "green", "autotroph"),
-        ("NH4", "Heterotrophs", "red", "heterotroph"),
-
         ("Autotrophs", "Carbohydrates", "green", "autotroph"),
+
+        ("NH4", "Heterotrophs", "red", "heterotroph"),
         ("Carbohydrates", "Heterotrophs", "red", "heterotroph"),
 
         ("Heterotrophs", "CO2", "blue", "heterotroph"),
     ]
 
-    max_flux = max(flux_abs.max(), 1e-6)
-
-    def scale_flux(f):
-        #return 1 + 10 * (f / max_flux)
-        return 10 * f
-
     for src, dst, color, rxn in edges:
 
         x0, y0 = pos[src]
         x1, y1 = pos[dst]
-
-        width = scale_flux(flux_abs[rxn])
 
         fig.add_trace(
             go.Scatter(
@@ -294,17 +289,17 @@ def draw_frame(frame, sol):
                 mode="lines",
                 line=dict(
                     color=color,
-                    width=width
+                    width=scale_flux(flux_abs[rxn])
                 ),
                 opacity=0.5,
+                hoverinfo="skip",
                 showlegend=False,
-                hoverinfo="skip"
             )
         )
 
-    # --------------------------------------------------
+    # ----------------------------------------
     # Nodes
-    # --------------------------------------------------
+    # ----------------------------------------
 
     fig.add_trace(
         go.Scatter(
@@ -318,93 +313,185 @@ def draw_frame(frame, sol):
                 line=dict(color="black", width=1)
             ),
             textposition="middle center",
+            showlegend=False,
+        )
+    )
+
+    # dummy particle trace that gets animated
+    fig.add_trace(
+        go.Scatter(
+            x=[],
+            y=[],
+            mode="markers",
+            marker=dict(size=8),
             showlegend=False
         )
     )
 
-    # --------------------------------------------------
-    # Timeline
-    # --------------------------------------------------
+    # ----------------------------------------
+    # Animation frames
+    # ----------------------------------------
 
-    if frame < 20:
+    frames = []
 
-        phase = frame / 20
+    for frame in range(100):
 
-        add_particle_stream(
-            fig,
-            pos["Light"],
-            pos["Autotrophs"],
-            "green",
-            phase,
+        particle_x = []
+        particle_y = []
+        particle_colors = []
+
+        # Stage 1
+        if frame < 20:
+
+            phase = frame / 20
+
+            add_particle_stream(
+                particle_x,
+                particle_y,
+                particle_colors,
+                pos["Light"],
+                pos["Autotrophs"],
+                "green",
+                phase,
+                particle_count(
+                    flux_abs["autotroph"],
+                    max_flux
+                )
+            )
+
+            add_particle_stream(
+                particle_x,
+                particle_y,
+                particle_colors,
+                pos["N2"],
+                pos["Diazotrophs"],
+                "purple",
+                phase,
+                particle_count(
+                    flux_abs["diazotroph"],
+                    max_flux
+                )
+            )
+
+        # Stage 2
+        elif frame < 50:
+
+            phase = (frame - 20) / 30
+
+            add_particle_stream(
+                particle_x,
+                particle_y,
+                particle_colors,
+                pos["Autotrophs"],
+                pos["Carbohydrates"],
+                "green",
+                phase,
+                particle_count(
+                    flux_abs["autotroph"],
+                    max_flux
+                )
+            )
+
+            add_particle_stream(
+                particle_x,
+                particle_y,
+                particle_colors,
+                pos["Diazotrophs"],
+                pos["NH4"],
+                "purple",
+                phase,
+                particle_count(
+                    flux_abs["diazotroph"],
+                    max_flux
+                )
+            )
+
+            add_particle_stream(
+                particle_x,
+                particle_y,
+                particle_colors,
+                pos["NH4"],
+                pos["Autotrophs"],
+                "green",
+                phase,
+                particle_count(
+                    flux_abs["autotroph"],
+                    max_flux
+                )
+            )
+
+        # Stage 3
+        elif frame < 90:
+
+            phase = (frame - 50) / 40
+
+            add_particle_stream(
+                particle_x,
+                particle_y,
+                particle_colors,
+                pos["Carbohydrates"],
+                pos["Heterotrophs"],
+                "red",
+                phase,
+                particle_count(
+                    flux_abs["heterotroph"],
+                    max_flux
+                )
+            )
+
+            add_particle_stream(
+                particle_x,
+                particle_y,
+                particle_colors,
+                pos["NH4"],
+                pos["Heterotrophs"],
+                "red",
+                phase,
+                particle_count(
+                    flux_abs["heterotroph"],
+                    max_flux
+                )
+            )
+
+        # Stage 4
+        else:
+
+            phase = (frame - 90) / 10
+
+            add_particle_stream(
+                particle_x,
+                particle_y,
+                particle_colors,
+                pos["Heterotrophs"],
+                pos["CO2"],
+                "blue",
+                phase,
+                particle_count(
+                    flux_abs["heterotroph"],
+                    max_flux
+                )
+            )
+
+        frames.append(
+        go.Frame(
+            data=[
+                go.Scatter(
+                    x=particle_x,
+                    y=particle_y,
+                    mode="markers",
+                    marker=dict(
+                        size=8,
+                        color=particle_colors
+                    ),
+                    showlegend=False
+                )
+            ],
+            traces=[len(fig.data)-1],   # particle trace
+            name=str(frame)
         )
+    )
 
-        add_particle_stream(
-            fig,
-            pos["N2"],
-            pos["Diazotrophs"],
-            "purple",
-            phase,
-        )
-
-    elif frame < 50:
-
-        phase = (frame - 20) / 30
-
-        add_particle_stream(
-            fig,
-            pos["Autotrophs"],
-            pos["Carbohydrates"],
-            "green",
-            phase,
-        )
-
-        add_particle_stream(
-            fig,
-            pos["Diazotrophs"],
-            pos["NH4"],
-            "purple",
-            phase,
-        )
-
-        add_particle_stream(
-            fig,
-            pos["NH4"],
-            pos["Autotrophs"],
-            "green",
-            phase,
-        )
-
-    elif frame < 90:
-
-        phase = (frame - 70) / 20
-
-        add_particle_stream(
-            fig,
-            pos["Carbohydrates"],
-            pos["Heterotrophs"],
-            "red",
-            phase,
-        )
-
-        add_particle_stream(
-            fig,
-            pos["NH4"],
-            pos["Heterotrophs"],
-            "red",
-            phase,
-        )
-
-    else:
-
-        phase = (frame - 90) / 10
-
-        add_particle_stream(
-            fig,
-            pos["Heterotrophs"],
-            pos["CO2"],
-            "blue",
-            phase,
-        )
+    fig.frames = frames
 
     fig.update_layout(
         xaxis=dict(visible=False),
@@ -412,6 +499,32 @@ def draw_frame(frame, sol):
         plot_bgcolor="white",
         margin=dict(l=10, r=10, t=10, b=10),
         height=600,
+
+        updatemenus=[
+            dict(
+                type="buttons",
+                showactive=False,
+                buttons=[
+                    dict(
+                        label="▶ Play",
+                        method="animate",
+                        args=[
+                            None,
+                            {
+                                "frame": {
+                                    "duration": 60,
+                                    "redraw": False
+                                },
+                                "transition": {
+                                    "duration": 0
+                                },
+                                "fromcurrent": True
+                            }
+                        ]
+                    )
+                ]
+            )
+        ]
     )
 
     return fig
@@ -429,6 +542,7 @@ app_ui = ui.page_sidebar(
         ui.input_slider("frame", "Frame", 0, 100, 0),
     ),
     output_widget("anim"),
+    
     ui.tags.script("""
         let f = 0;
         setInterval(() => {
@@ -454,14 +568,16 @@ def server(input, output, session):
             input.diaz(),
             input.ecosystem()
         )
+    
+    def frame():
+        reactive.invalidate_later(0.25)
+        return int(time.time() * 4) % 40
+
 
     @output
     @render_plotly
     def anim():
-        return draw_frame(
-            input.frame(),
-            solution()
-        )
+       return make_animation(solution())
 
 
 app = App(app_ui, server)
