@@ -169,10 +169,6 @@ def build_model(auto, hetero, diaz, ecosystem):
     return solution
 
 
-## animation + shiny ui
-
-from matplotlib.patches import FancyArrowPatch
-
 # =========================================================
 # DRAWING UTILITIES
 # =========================================================
@@ -258,8 +254,9 @@ def make_svg(sol):
 
         "NH4": (450, 360),
 
-        "Carbohydrates": (280, 520),
-        "Heterotrophs": (120, 420),
+        "Carbohydrates": (340, 520),
+        "Heterotrophs": (120, 480),
+        "O2": (80, 320),
     }
 
     edges = [
@@ -269,13 +266,16 @@ def make_svg(sol):
         ("N2", "Diazotrophs", "purple", "diazotroph"),
         ("Diazotrophs", "NH4", "purple", "diazotroph"),
 
-        ("NH4", "Autotrophs", "green", "autotroph"),
+        ("NH4", "Autotrophs", "purple", "autotroph"),
         ("Autotrophs", "Carbohydrates", "green", "autotroph"),
 
-        ("NH4", "Heterotrophs", "red", "heterotroph"),
+        ("NH4", "Heterotrophs", "purple", "heterotroph"),
         ("Carbohydrates", "Heterotrophs", "red", "heterotroph"),
 
         ("Heterotrophs", "CO2", "blue", "heterotroph"),
+
+        ("Autotrophs", "O2", "green", "autotroph"),
+        ("O2", "Heterotrophs", "red", "heterotroph"),
     ]
 
     svg = []
@@ -293,7 +293,7 @@ def make_svg(sol):
         x1, y1 = pos[src]
         x2, y2 = pos[dst]
 
-        width = 2 + 12 * flux_abs[rxn] / max_flux
+        width = 12 * flux_abs[rxn]
 
         svg.append(
             f"""
@@ -307,7 +307,38 @@ def make_svg(sol):
             />
             """
         )
+    
+    # -----------------------------------
+    # CO2 exchange arrow
+    # -----------------------------------
 
+    ex_flux = flux.get("EX_co2", 0.0)
+    print(ex_flux, flux.get("autotroph", 0.0))
+
+    x, y = pos["CO2"]
+
+    if ex_flux > 0:
+
+        w = numpy.exp(ex_flux) + 4
+        L = 20 + numpy.exp(ex_flux) * 4
+
+        svg.append(
+            f"""
+            <polygon
+                points="
+                {x-w/2},{y-35}
+                {x+w/2},{y-35}
+                {x+w/2},{y-35-L+15}
+                {x+w},{y-35-L+15}
+                {x},{y-35-L}
+                {x-w},{y-35-L+15}
+                {x-w/2},{y-35-L+15}
+                "
+                fill="darkgreen"
+                opacity="0.8"
+            />
+            """
+        )
     # -----------------------------------
     # Nodes
     # -----------------------------------
@@ -344,11 +375,9 @@ def make_svg(sol):
     for i, (src, dst, color, rxn) in enumerate(edges):
 
         n_particles = max(
-            1,
+            0,
             int(
-                1 + 8 * numpy.sqrt(
-                    flux_abs[rxn] / max_flux
-                )
+                8 * flux_abs[rxn]
             )
         )
 
@@ -357,16 +386,19 @@ def make_svg(sol):
             phase = 0
 
         elif rxn == "diazotroph":
+            phase = 0
+
+        elif src == "NH4":
             phase = 2
 
-        elif src == "NH4" and dst == "Autotrophs":
-            phase = 4
+        elif rxn == "autotroph" and src in ["Autotrophs"]:
+            phase = 2
 
         elif rxn == "heterotroph" and src != "Heterotrophs":
-            phase = 6
+            phase = 4
 
         else:
-            phase = 8
+            phase = 6
 
         for k in range(n_particles):
 
